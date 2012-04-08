@@ -44,7 +44,24 @@ get "/repos/:repo/tags" do
   end
 end
 
-## TODO: get "/repos/:repo/git/tags/:sha"
+get "/repos/:repo/git/tags/:sha" do
+  content_type :json
+  with_repo params[:repo] do |repo|
+    tag = repo.tags.find(params[:sha]).first
+    { tag: tag.name,
+#      sha: tag.commit.id,
+      message: tag.message,
+      tagger: {
+          name: tag.tagger.name,
+          email: tag.tagger.email,
+          date: tag.tag_date
+      },
+      object: {
+        sha: tag.commit.id
+      }
+    }
+  end.to_json
+end
 
 ## Blobs
 
@@ -76,6 +93,9 @@ get "/repos/:repo/git/commits/:sha" do
         name: commit.committer.name,
         email: commit.committer.email
       },
+      tree: {
+          sha: commit.tree.id
+      }
     }.to_json
   end
 end
@@ -98,22 +118,51 @@ get "/repos/:repo/git/refs" do
   end
 end
 
+# Handle e.g., /repos/:user/:repo/git/refs/heads/master
+def get_reference(repo, ref_name) 
+  ref = repo.refs.select {|ref|
+   ref_name ==
+    "#{ref.class.name.split("::").last.downcase}s/#{ref.name}"}.first
+  type = ref.class.name.split("::").last.downcase
+# for compatability with github, return array:
+  [{
+    ref: "refs/#{type}s/#{ref.name}",
+    object: {
+      sha: ref.commit,
+      type: (type == "tag") ? "tag" : "commit"
+    }
+  }]
+end
 
-get "/repos/:repo/git/refs/*" do
-  content_type :json
-  ref_name = params[:splat].first
-  with_repo params[:repo] do |repo|
-    ref = repo.refs.select {|ref| ref_name == "#{ref.class.name.split("::").last.downcase}s/#{ref.name}"}.first
+# Handle e.g., /repos/:user/:repo/git/refs/tags
+def get_sub_namespace_references(repo, ref_name) 
+  refs = repo.refs.select {|ref|
+    ref_name == "#{ref.class.name.split("::").last.downcase}s"}
+  refs.map do |ref|
     type = ref.class.name.split("::").last.downcase
     {
       ref: "refs/#{type}s/#{ref.name}",
       object: {
         sha: ref.commit,
-        type: type
+        type: (type == "tag") ? "tag" : "commit"
       }
-    }.to_json
+    }
   end
 end
+
+
+get "/repos/:repo/git/refs/*" do
+  content_type :json
+  ref_name = params[:splat].first
+  with_repo params[:repo] do |repo|
+      if ref_name.split('/').length > 1
+        get_reference repo, ref_name
+      else
+        get_sub_namespace_references repo, ref_name
+      end
+  end.to_json
+end
+
 
 ## Trees
 
@@ -141,7 +190,7 @@ get "/repos/:repo/git/trees/:sha" do
   with_repo params[:repo] do |repo|
     tree = repo.tree(params[:sha])
     sub_trees = tree.trees.map {|t| makeTree(t)}
-    blobs = tree.blobs.map {|t| makeTree(t)}
+    blobs = tree.blobs.map {|t| makeBlob(t)}
     {
       sha: tree.id,
       tree: sub_trees + blobs
