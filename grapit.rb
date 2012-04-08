@@ -49,14 +49,16 @@ get "/repos/:repo/git/tags/:sha" do
   with_repo params[:repo] do |repo|
     tag = repo.tags.find(params[:sha]).first
     { tag: tag.name,
-      sha: tag.commit.id,
+#      sha: tag.commit.id,
       message: tag.message,
       tagger: {
           name: tag.tagger.name,
           email: tag.tagger.email,
           date: tag.tag_date
+      },
+      object: {
+        sha: tag.commit.id
       }
-#TODO: object { type, sha }
     }
   end.to_json
 end
